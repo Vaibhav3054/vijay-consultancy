@@ -1,29 +1,25 @@
-import sqlite3 from 'sqlite3';
-import { open, Database } from 'sqlite';
-import path from 'path';
-import fs from 'fs';
+import { createClient, Client } from '@libsql/client';
 import bcrypt from 'bcrypt';
+import dotenv from 'dotenv';
 
-// Allow overriding the database path via environment variables (important for Render persistent disks)
-const dbPath = process.env.DB_PATH || path.join(process.cwd(), 'data', 'crm.db');
+dotenv.config();
 
-// Ensure the directory exists if using the default path
-const dbDir = path.dirname(dbPath);
-if (!fs.existsSync(dbDir)) {
-  fs.mkdirSync(dbDir, { recursive: true });
-}
-
-let db: Database<sqlite3.Database, sqlite3.Statement>;
+let client: Client;
 
 export async function initDb() {
-  if (db) return db;
+  if (client) return client;
   
-  db = await open({
-    filename: dbPath,
-    driver: sqlite3.Database
+  if (!process.env.TURSO_DATABASE_URL || !process.env.TURSO_AUTH_TOKEN) {
+    throw new Error('TURSO_DATABASE_URL and TURSO_AUTH_TOKEN environment variables must be set.');
+  }
+
+  client = createClient({
+    url: process.env.TURSO_DATABASE_URL,
+    authToken: process.env.TURSO_AUTH_TOKEN,
   });
 
-  await db.exec(`
+  // Execute schema creation
+  await client.executeMultiple(`
     CREATE TABLE IF NOT EXISTS Admins (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       username TEXT UNIQUE NOT NULL,
@@ -105,27 +101,29 @@ export async function initDb() {
     );
   `);
 
-  await db.exec('PRAGMA foreign_keys = ON');
+  // Try to enable foreign keys. In libSQL/Turso, foreign keys are usually enabled by default, 
+  // but it's safe to run PRAGMA.
+  await client.execute('PRAGMA foreign_keys = ON');
 
   // Seed default admin if missing
-  const adminRow = await db.get('SELECT COUNT(*) as count FROM Admins');
-  if (adminRow && adminRow.count === 0) {
+  const adminRow = await client.execute('SELECT COUNT(*) as count FROM Admins');
+  if (adminRow.rows[0] && Number(adminRow.rows[0].count) === 0) {
     const defaultPassword = 'Admin@Vijay2026';
     const hashedPassword = await bcrypt.hash(defaultPassword, 10);
     
-    await db.run(
-      `INSERT INTO Admins (username, email, password_hash, display_name) VALUES (?, ?, ?, ?)`,
-      'admin', 'vaibhavacharya305@gmail.com', hashedPassword, 'Vijay Kumar Sahu'
-    );
-    console.log('Default admin user seeded.');
+    await client.execute({
+      sql: `INSERT INTO Admins (username, email, password_hash, display_name) VALUES (?, ?, ?, ?)`,
+      args: ['admin', 'vaibhavacharya305@gmail.com', hashedPassword, 'Vijay Kumar Sahu']
+    });
+    console.log('Default admin user seeded into Turso.');
   }
 
-  return db;
+  return client;
 }
 
 export function getDb() {
-  if (!db) {
+  if (!client) {
     throw new Error('Database not initialized. Call initDb() first.');
   }
-  return db;
+  return client;
 }

@@ -45,7 +45,11 @@ app.post("/api/auth/login", async (req, res) => {
   }
 
   const db = getDb();
-  const admin = await db.get("SELECT * FROM Admins WHERE email = ? OR username = ?", [email, email]);
+  const rs = await db.execute({
+    sql: "SELECT * FROM Admins WHERE email = ? OR username = ?",
+    args: [email, email]
+  });
+  const admin = rs.rows[0];
 
   if (!admin) {
     return res.status(401).json({ error: "Invalid credentials." });
@@ -83,7 +87,11 @@ app.post("/api/auth/logout", (req, res) => {
 
 app.get("/api/auth/me", authenticateAdmin, async (req: AuthRequest, res) => {
   const db = getDb();
-  const admin = await db.get("SELECT id, username, email, display_name FROM Admins WHERE id = ?", [req.admin?.id]);
+  const rs = await db.execute({
+    sql: "SELECT id, username, email, display_name FROM Admins WHERE id = ?",
+    args: [req.admin?.id as any]
+  });
+  const admin = rs.rows[0];
   if (!admin) return res.status(401).json({ error: "Admin not found" });
   
   res.json({
@@ -101,7 +109,10 @@ app.post("/api/auth/change-password", authenticateAdmin, async (req: AuthRequest
 
   const hashedPassword = await bcrypt.hash(password, 10);
   const db = getDb();
-  await db.run("UPDATE Admins SET password_hash = ? WHERE id = ?", [hashedPassword, req.admin?.id]);
+  await db.execute({
+    sql: "UPDATE Admins SET password_hash = ? WHERE id = ?",
+    args: [hashedPassword, req.admin?.id as any]
+  });
 
   res.json({ success: true, message: "Password updated successfully." });
 });
@@ -113,7 +124,10 @@ app.post("/api/auth/update-profile", authenticateAdmin, async (req: AuthRequest,
   }
 
   const db = getDb();
-  await db.run("UPDATE Admins SET display_name = ? WHERE id = ?", [displayName.trim(), req.admin?.id]);
+  await db.execute({
+    sql: "UPDATE Admins SET display_name = ? WHERE id = ?",
+    args: [displayName.trim(), req.admin?.id as any]
+  });
   res.json({ success: true, displayName: displayName.trim() });
 });
 
@@ -145,25 +159,25 @@ app.post("/api/inquiries", (req, res) => {
 // --- Dashboard API ---
 app.get("/api/dashboard", authenticateAdmin, async (req, res) => {
   const db = getDb();
-  const totalCustomers = (await db.get("SELECT COUNT(*) as count FROM Customers")).count;
-  const activePolicies = (await db.get("SELECT COUNT(*) as count FROM Policies WHERE status = 'Active'")).count;
+  const totalCustomers = (await db.execute("SELECT COUNT(*) as count FROM Customers")).rows[0].count;
+  const activePolicies = (await db.execute("SELECT COUNT(*) as count FROM Policies WHERE status = 'Active'")).rows[0].count;
   
   const now = new Date();
   const today = now.toISOString().split("T")[0];
   const nextWeek = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
 
-  const expiringPolicies = (await db.get(
-    "SELECT COUNT(*) as count FROM Policies WHERE policy_maturity_date BETWEEN ? AND ?",
-    [today, nextWeek]
-  )).count;
+  const expiringPolicies = (await db.execute({
+    sql: "SELECT COUNT(*) as count FROM Policies WHERE policy_maturity_date BETWEEN ? AND ?",
+    args: [today, nextWeek]
+  })).rows[0].count;
 
-  const duePremiums = (await db.get(
-    "SELECT COUNT(*) as count FROM Policies WHERE premium_due_date BETWEEN ? AND ?",
-    [today, nextWeek]
-  )).count;
+  const duePremiums = (await db.execute({
+    sql: "SELECT COUNT(*) as count FROM Policies WHERE premium_due_date BETWEEN ? AND ?",
+    args: [today, nextWeek]
+  })).rows[0].count;
 
-  const recentActivities = await db.all("SELECT * FROM Activities ORDER BY timestamp DESC LIMIT 10");
-  const recentCustomers = await db.all("SELECT * FROM Customers ORDER BY created_at DESC LIMIT 5");
+  const recentActivities = (await db.execute("SELECT * FROM Activities ORDER BY timestamp DESC LIMIT 10")).rows;
+  const recentCustomers = (await db.execute("SELECT * FROM Customers ORDER BY created_at DESC LIMIT 5")).rows;
 
   res.json({
     totalCustomers,
@@ -198,20 +212,30 @@ app.get("/api/customers", authenticateAdmin, async (req, res) => {
 
   query += " ORDER BY created_at DESC";
 
-  const customers = await db.all(query, params);
+  const customers = (await db.execute({ sql: query, args: params })).rows;
   res.json(customers);
 });
 
 app.get("/api/customers/:mobile", authenticateAdmin, async (req, res) => {
   const db = getDb();
-  const customer = await db.get("SELECT * FROM Customers WHERE mobile_number = ?", [req.params.mobile]);
+  const rs = await db.execute({
+    sql: "SELECT * FROM Customers WHERE mobile_number = ?",
+    args: [req.params.mobile]
+  });
+  const customer = rs.rows[0];
   
   if (!customer) {
     return res.status(404).json({ error: "Customer not found" });
   }
 
-  const policies = await db.all("SELECT * FROM Policies WHERE mobile_number = ?", [req.params.mobile]);
-  const documents = await db.all("SELECT * FROM Documents WHERE mobile_number = ?", [req.params.mobile]);
+  const policies = (await db.execute({
+    sql: "SELECT * FROM Policies WHERE mobile_number = ?",
+    args: [req.params.mobile]
+  })).rows;
+  const documents = (await db.execute({
+    sql: "SELECT * FROM Documents WHERE mobile_number = ?",
+    args: [req.params.mobile]
+  })).rows;
   
   res.json({ ...customer, policies, documents });
 });
@@ -225,26 +249,29 @@ app.post("/api/customers", authenticateAdmin, async (req, res) => {
   const db = getDb();
   
   try {
-    await db.run(
-      `INSERT INTO Customers (
+    await db.execute({
+      sql: `INSERT INTO Customers (
         mobile_number, customer_name, father_husband_name, dob, gender, alternate_number,
         email, address, city, state, pin_code, occupation, aadhaar_number, pan_number,
         nominee_name, nominee_relation, notes, status
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
+      args: [
         c.mobile_number, c.customer_name, c.father_husband_name, c.dob, c.gender, c.alternate_number,
         c.email, c.address, c.city, c.state, c.pin_code, c.occupation, c.aadhaar_number, c.pan_number,
         c.nominee_name, c.nominee_relation, c.notes, c.status || "Active"
       ]
-    );
+    });
 
-    await db.run(
-      "INSERT INTO Activities (mobile_number, type, description) VALUES (?, ?, ?)",
-      [c.mobile_number, "Customer Created", `Created profile for ${c.customer_name}`]
-    );
+    await db.execute({
+      sql: "INSERT INTO Activities (mobile_number, type, description) VALUES (?, ?, ?)",
+      args: [c.mobile_number, "Customer Created", `Created profile for ${c.customer_name}`]
+    });
 
-    const customer = await db.get("SELECT * FROM Customers WHERE mobile_number = ?", [c.mobile_number]);
-    res.json(customer);
+    const rs = await db.execute({
+      sql: "SELECT * FROM Customers WHERE mobile_number = ?",
+      args: [c.mobile_number]
+    });
+    res.json(rs.rows[0]);
   } catch (err: any) {
     if (err.message.includes("UNIQUE constraint failed")) {
       return res.status(400).json({ error: "A customer with this mobile number already exists." });
@@ -258,20 +285,20 @@ app.put("/api/customers/:mobile", authenticateAdmin, async (req, res) => {
   const db = getDb();
   
   try {
-    await db.run(
-      `UPDATE Customers SET
+    await db.execute({
+      sql: `UPDATE Customers SET
         customer_name = ?, father_husband_name = ?, dob = ?, gender = ?, alternate_number = ?,
         email = ?, address = ?, city = ?, state = ?, pin_code = ?, occupation = ?,
         aadhaar_number = ?, pan_number = ?, nominee_name = ?, nominee_relation = ?,
         notes = ?, status = ?, updated_at = CURRENT_TIMESTAMP
       WHERE mobile_number = ?`,
-      [
+      args: [
         c.customer_name, c.father_husband_name, c.dob, c.gender, c.alternate_number,
         c.email, c.address, c.city, c.state, c.pin_code, c.occupation,
         c.aadhaar_number, c.pan_number, c.nominee_name, c.nominee_relation,
         c.notes, c.status, req.params.mobile
       ]
-    );
+    });
 
     res.json({ success: true });
   } catch (err: any) {
@@ -281,7 +308,10 @@ app.put("/api/customers/:mobile", authenticateAdmin, async (req, res) => {
 
 app.delete("/api/customers/:mobile", authenticateAdmin, async (req, res) => {
   const db = getDb();
-  await db.run("DELETE FROM Customers WHERE mobile_number = ?", [req.params.mobile]);
+  await db.execute({
+    sql: "DELETE FROM Customers WHERE mobile_number = ?",
+    args: [req.params.mobile]
+  });
   res.json({ success: true });
 });
 
@@ -296,26 +326,29 @@ app.post("/api/policies", authenticateAdmin, async (req, res) => {
   const id = "pol_" + Math.random().toString(36).substr(2, 9);
   
   try {
-    await db.run(
-      `INSERT INTO Policies (
+    await db.execute({
+      sql: `INSERT INTO Policies (
         id, mobile_number, policy_number, policy_type, insurance_company, plan_name,
         sum_assured, premium_amount, premium_frequency, policy_start_date,
         policy_maturity_date, premium_due_date, status, agent_remarks
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
+      args: [
         id, p.mobile_number, p.policy_number, p.policy_type, p.insurance_company, p.plan_name,
         p.sum_assured, p.premium_amount, p.premium_frequency, p.policy_start_date,
         p.policy_maturity_date, p.premium_due_date, p.status || "Active", p.agent_remarks
       ]
-    );
+    });
     
-    await db.run(
-      "INSERT INTO Activities (mobile_number, type, description) VALUES (?, ?, ?)",
-      [p.mobile_number, "Policy Added", `Added policy ${p.policy_number}`]
-    );
+    await db.execute({
+      sql: "INSERT INTO Activities (mobile_number, type, description) VALUES (?, ?, ?)",
+      args: [p.mobile_number, "Policy Added", `Added policy ${p.policy_number}`]
+    });
 
-    const policy = await db.get("SELECT * FROM Policies WHERE id = ?", [id]);
-    res.json(policy);
+    const rs = await db.execute({
+      sql: "SELECT * FROM Policies WHERE id = ?",
+      args: [id]
+    });
+    res.json(rs.rows[0]);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -326,18 +359,18 @@ app.put("/api/policies/:id", authenticateAdmin, async (req, res) => {
   const db = getDb();
   
   try {
-    await db.run(
-      `UPDATE Policies SET
+    await db.execute({
+      sql: `UPDATE Policies SET
         policy_number = ?, policy_type = ?, insurance_company = ?, plan_name = ?,
         sum_assured = ?, premium_amount = ?, premium_frequency = ?, policy_start_date = ?,
         policy_maturity_date = ?, premium_due_date = ?, status = ?, agent_remarks = ?
       WHERE id = ?`,
-      [
+      args: [
         p.policy_number, p.policy_type, p.insurance_company, p.plan_name,
         p.sum_assured, p.premium_amount, p.premium_frequency, p.policy_start_date,
         p.policy_maturity_date, p.premium_due_date, p.status, p.agent_remarks, req.params.id
       ]
-    );
+    });
 
     res.json({ success: true });
   } catch (err: any) {
@@ -347,7 +380,10 @@ app.put("/api/policies/:id", authenticateAdmin, async (req, res) => {
 
 app.delete("/api/policies/:id", authenticateAdmin, async (req, res) => {
   const db = getDb();
-  await db.run("DELETE FROM Policies WHERE id = ?", [req.params.id]);
+  await db.execute({
+    sql: "DELETE FROM Policies WHERE id = ?",
+    args: [req.params.id]
+  });
   res.json({ success: true });
 });
 
@@ -357,11 +393,11 @@ app.post("/api/payments", authenticateAdmin, async (req, res) => {
   const db = getDb();
   const id = "pay_" + Math.random().toString(36).substr(2, 9);
   
-  await db.run(
-    `INSERT INTO PremiumPayments (id, policy_id, amount, due_date, paid_date, status)
+  await db.execute({
+    sql: `INSERT INTO PremiumPayments (id, policy_id, amount, due_date, paid_date, status)
      VALUES (?, ?, ?, ?, ?, ?)`,
-    [id, p.policy_id, p.amount, p.due_date, p.paid_date, p.status]
-  );
+    args: [id, p.policy_id, p.amount, p.due_date, p.paid_date, p.status]
+  });
   
   res.json({ success: true });
 });
@@ -372,11 +408,11 @@ app.post("/api/documents", authenticateAdmin, async (req, res) => {
   const db = getDb();
   const id = "doc_" + Math.random().toString(36).substr(2, 9);
   
-  await db.run(
-    `INSERT INTO Documents (id, mobile_number, file_name, file_type, file_url)
+  await db.execute({
+    sql: `INSERT INTO Documents (id, mobile_number, file_name, file_type, file_url)
      VALUES (?, ?, ?, ?, ?)`,
-    [id, d.mobile_number, d.file_name, d.file_type, d.file_url]
-  );
+    args: [id, d.mobile_number, d.file_name, d.file_type, d.file_url]
+  });
   
   res.json({ success: true });
 });
