@@ -6,7 +6,7 @@ import jwt from "jsonwebtoken";
 import cookieParser from "cookie-parser";
 import { initDb, getDb } from "./server/db.js";
 
-const app = express();
+export const app = express();
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || "vijay-consultancy-super-secret-key-2026";
 
@@ -455,4 +455,7 @@ async function startServer() {
   });
 }
 
-startServer();
+// Only start the server automatically if not running in a Serverless Function (Netlify/AWS)
+if (!process.env.LAMBDA_TASK_ROOT) {
+  startServer();
+}
