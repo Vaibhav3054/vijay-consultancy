@@ -53,12 +53,12 @@ app.post("/api/auth/login", async (req, res) => {
     const admin = rs.rows[0];
 
     if (!admin) {
-      return res.status(401).json({ error: "Invalid credentials." });
+      return res.status(401).json({ error: "Invalid credentials (Admin user not found in Turso)." });
     }
 
     const isMatch = await bcrypt.compare(password, admin.password_hash as string);
     if (!isMatch) {
-      return res.status(401).json({ error: "Invalid credentials." });
+      return res.status(401).json({ error: "Invalid credentials (Password mismatch in bcrypt)." });
     }
 
     const token = jwt.sign(

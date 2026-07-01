@@ -60,8 +60,17 @@ export async function loginAdmin(email: string, password: string): Promise<Admin
   });
 
   if (!res.ok) {
-    const errorData = await res.json().catch(() => ({}));
-    throw new Error(errorData.error || "Invalid credentials.");
+    let rawText = "";
+    try {
+      rawText = await res.text();
+      const errorData = JSON.parse(rawText);
+      throw new Error(errorData.error || "Invalid credentials.");
+    } catch (e: any) {
+      if (e.message !== "Invalid credentials.") {
+        throw new Error(`Server returned ${res.status}: ${rawText.substring(0, 100)}... Check Netlify Function logs.`);
+      }
+      throw e;
+    }
   }
 
   const adminUser: AdminUser = await res.json();
