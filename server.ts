@@ -1,7 +1,7 @@
 import express, { Request, Response, NextFunction } from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
-import bcrypt from "bcrypt";
+import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import cookieParser from "cookie-parser";
 import { initDb, getDb } from "./server/db.js";
@@ -44,40 +44,45 @@ app.post("/api/auth/login", async (req, res) => {
     return res.status(400).json({ error: "Email and password are required." });
   }
 
-  const db = getDb();
-  const rs = await db.execute({
-    sql: "SELECT * FROM Admins WHERE email = ? OR username = ?",
-    args: [email, email]
-  });
-  const admin = rs.rows[0];
+  try {
+    const db = getDb();
+    const rs = await db.execute({
+      sql: "SELECT * FROM Admins WHERE email = ? OR username = ?",
+      args: [email, email]
+    });
+    const admin = rs.rows[0];
 
-  if (!admin) {
-    return res.status(401).json({ error: "Invalid credentials." });
+    if (!admin) {
+      return res.status(401).json({ error: "Invalid credentials." });
+    }
+
+    const isMatch = await bcrypt.compare(password, admin.password_hash as string);
+    if (!isMatch) {
+      return res.status(401).json({ error: "Invalid credentials." });
+    }
+
+    const token = jwt.sign(
+      { id: admin.id, username: admin.username, email: admin.email, displayName: admin.display_name },
+      JWT_SECRET,
+      { expiresIn: "24h" }
+    );
+
+    res.cookie("admin_token", token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 24 * 60 * 60 * 1000,
+    });
+
+    res.json({
+      uid: admin.id.toString(),
+      email: admin.email,
+      displayName: admin.display_name
+    });
+  } catch (error: any) {
+    console.error("Login Error:", error);
+    res.status(500).json({ error: "Internal Server Error during login." });
   }
-
-  const isMatch = await bcrypt.compare(password, admin.password_hash);
-  if (!isMatch) {
-    return res.status(401).json({ error: "Invalid credentials." });
-  }
-
-  const token = jwt.sign(
-    { id: admin.id, username: admin.username, email: admin.email, displayName: admin.display_name },
-    JWT_SECRET,
-    { expiresIn: "24h" }
-  );
-
-  res.cookie("admin_token", token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    maxAge: 24 * 60 * 60 * 1000,
-  });
-
-  res.json({
-    uid: admin.id.toString(),
-    email: admin.email,
-    displayName: admin.display_name
-  });
 });
 
 app.post("/api/auth/logout", (req, res) => {
