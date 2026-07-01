@@ -7,7 +7,7 @@ import cookieParser from "cookie-parser";
 import { initDb, getDb } from "./server/db.js";
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || "vijay-consultancy-super-secret-key-2026";
 
 app.use(express.json());

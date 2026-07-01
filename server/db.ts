@@ -4,9 +4,13 @@ import path from 'path';
 import fs from 'fs';
 import bcrypt from 'bcrypt';
 
-const DATA_DIR = path.join(process.cwd(), 'data');
-if (!fs.existsSync(DATA_DIR)) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
+// Allow overriding the database path via environment variables (important for Render persistent disks)
+const dbPath = process.env.DB_PATH || path.join(process.cwd(), 'data', 'crm.db');
+
+// Ensure the directory exists if using the default path
+const dbDir = path.dirname(dbPath);
+if (!fs.existsSync(dbDir)) {
+  fs.mkdirSync(dbDir, { recursive: true });
 }
 
 let db: Database<sqlite3.Database, sqlite3.Statement>;
@@ -15,7 +19,7 @@ export async function initDb() {
   if (db) return db;
   
   db = await open({
-    filename: path.join(DATA_DIR, 'crm.db'),
+    filename: dbPath,
     driver: sqlite3.Database
   });
 
