@@ -8,6 +8,7 @@ let dbInitialized = false;
 // The 'request' hook allows us to initialize the database connection on cold starts
 // before the request reaches the Express router.
 export const handler = serverless(app, {
+  basePath: '/.netlify/functions',
   request: async (req: any, event: any, context: any) => {
     if (!dbInitialized) {
       console.log("Cold start: Initializing Turso Database Connection...");
